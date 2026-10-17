@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block content %}
+<h1>Přihlášení</h1>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+<p><input name="username" placeholder="Uživatel" autocomplete="username" required></p>
+<p><input name="password" type="password" placeholder="Heslo" autocomplete="current-password" required></p>
+<button>Přihlásit</button></form>{% endblock %}

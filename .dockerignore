@@ -1,0 +1,4 @@
+.git
+tests
+*.db
+__pycache__

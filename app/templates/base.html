@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Akce hlídač</title>
+<style>
+body{font-family:sans-serif;max-width:1000px;margin:1rem auto;padding:0 1rem}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:.3rem;text-align:left}
+nav{display:flex;gap:1rem;align-items:center;margin-bottom:1rem}nav form{margin-left:auto}
+.err{color:#b00}form.inline{display:inline}
+</style></head><body>
+{% if user %}<nav><a href="/">Akce</a><a href="/items">Položky</a>
+<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Odhlásit</button></form></nav>{% endif %}
+{% block content %}{% endblock %}
+</body></html>
