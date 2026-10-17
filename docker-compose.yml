@@ -1,0 +1,32 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8050:8050"
+    environment:
+      DATABASE_URL: postgresql://app:${DB_PASSWORD}@db:5432/akce
+      SECRET_KEY: ${SECRET_KEY}
+      ADMIN_USER: ${ADMIN_USER}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      TZ: Europe/Prague
+      RETENTION_DAYS: "30"
+      SCRAPE_HOURS: "7,17"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: akce
+      TZ: Europe/Prague
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
