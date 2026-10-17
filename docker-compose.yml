@@ -1,32 +1,41 @@
 services:
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     ports:
       - "8050:8050"
     environment:
-      DATABASE_URL: postgresql://app:${DB_PASSWORD}@db:5432/akce
-      SECRET_KEY: ${SECRET_KEY}
-      ADMIN_USER: ${ADMIN_USER}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DATABASE_URL: postgresql://akce:${DB_PASSWORD:-Nevim1234*}@db:5432/akce
+      SECRET_KEY: ${SECRET_KEY:-Nevim1234*}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Nevim1234*}
       TZ: Europe/Prague
-      RETENTION_DAYS: "30"
-      SCRAPE_HOURS: "7,17"
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      SCRAPE_HOURS: ${SCRAPE_HOURS:-7,17}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
+    networks: [internal, default]
 
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: akce
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Nevim1234*}
       POSTGRES_DB: akce
-      TZ: Europe/Prague
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akce -d akce"]
+      interval: 5s
+      retries: 10
     restart: unless-stopped
+    networks: [internal]
+
+networks:
+  internal:
+    internal: true
 
 volumes:
   pgdata:

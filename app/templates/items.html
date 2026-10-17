@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block content %}
+<h1>Sledované položky</h1>
+<form method="post" action="/items"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input name="name" placeholder="např. máslo" required maxlength="200"><button>Přidat</button></form>
+<table><tr><th>Název</th><th>Stav</th><th></th></tr>
+{% for i in items %}<tr>
+<td><form class="inline" method="post" action="/items/{{ i.id }}/edit"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input name="name" value="{{ i.name }}" required maxlength="200"><button>Uložit</button></form></td>
+<td>{{ "aktivní" if i.enabled else "vypnuto" }}</td>
+<td><form class="inline" method="post" action="/items/{{ i.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ "Vypnout" if i.enabled else "Zapnout" }}</button></form>
+<form class="inline" method="post" action="/items/{{ i.id }}/delete" onsubmit="return confirm('Smazat?')"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Smazat</button></form></td>
+</tr>{% endfor %}</table>{% endblock %}
