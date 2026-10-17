@@ -1,0 +1,41 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8050:8050"
+    environment:
+      DATABASE_URL: postgresql://akce:${DB_PASSWORD:?set DB_PASSWORD}@db:5432/akce
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      TZ: Europe/Prague
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      SCRAPE_HOURS: ${SCRAPE_HOURS:-7,17}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [internal, default]
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: akce
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      POSTGRES_DB: akce
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akce -d akce"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [internal]
+
+networks:
+  internal:
+    internal: true
+
+volumes:
+  pgdata:

@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block content %}
+<h1>Nalezené akce</h1>
+<form method="get">
+<select name="item_id"><option value="">Všechny položky</option>
+{% for i in items %}<option value="{{ i.id }}" {{ "selected" if i.id == item_id }}>{{ i.name }}</option>{% endfor %}</select>
+<select name="source"><option value="">Všechny weby</option>
+{% for s in ["kupi.cz","akcniceny.cz"] %}<option {{ "selected" if s == source }}>{{ s }}</option>{% endfor %}</select>
+<input name="store" placeholder="Obchod" value="{{ store }}"><button>Filtrovat</button></form>
+<form method="post" action="/search-now"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Hledat teď</button></form>
+<table><tr><th>Položka</th><th>Produkt</th><th>Web</th><th>Obchod</th><th>Cena</th><th>Od</th><th>Do</th><th>Nalezeno</th></tr>
+{% for o in offers %}<tr><td>{{ names.get(o.item_id) }}</td>
+<td>{% if o.url and o.url.startswith("https://") %}<a href="{{ o.url }}" rel="noopener noreferrer" target="_blank">{{ o.product_name }}</a>{% else %}{{ o.product_name }}{% endif %}</td>
+<td>{{ o.source }}</td><td>{{ o.store or "" }}</td><td>{{ o.price or "" }}</td>
+<td>{{ o.valid_from or "" }}</td><td>{{ o.valid_to or "" }}</td><td>{{ o.discovered_at.strftime("%d.%m. %H:%M") }}</td></tr>
+{% else %}<tr><td colspan="8">Zatím nic.</td></tr>{% endfor %}</table>{% endblock %}
