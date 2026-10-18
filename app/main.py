@@ -84,27 +84,23 @@ def healthz():
     return {"status": "ok"}
 
 
-class BestOffer(BaseModel):
-    product_name: str
-    source: str
+class OfferOut(BaseModel):
+    item: str
+    description: str
     store: str | None = None
     price: float | None = None
     valid_from: date | None = None
     valid_to: date | None = None
-    url: str | None = None
-    discovered_at: datetime | None = None
 
 
-class ItemSummary(BaseModel):
-    id: int
+class ItemOut(BaseModel):
     name: str
-    offers_count: int
-    best_offer: BestOffer | None = None
+    offers: list[OfferOut]
 
 
 class ItemsSummary(BaseModel):
     updated_at: datetime
-    items: list[ItemSummary]
+    items: list[ItemOut]
 
 
 def _is_active(offer: FoundOffer, today: date) -> bool:
@@ -112,13 +108,8 @@ def _is_active(offer: FoundOffer, today: date) -> bool:
 
 
 def _offer_sort_key(offer: FoundOffer):
-    # lowest price first, unpriced last; newest discovery wins ties
-    discovered = offer.discovered_at.timestamp() if offer.discovered_at else 0
-    return (offer.price is None, float(offer.price or 0), -discovered)
-
-
-def best_offer(offers: list[FoundOffer]) -> FoundOffer | None:
-    return min(offers, key=_offer_sort_key) if offers else None
+    # lowest price first, unpriced last
+    return (offer.price is None, float(offer.price or 0))
 
 
 @app.get("/api/items/summary", response_model=ItemsSummary)
@@ -134,14 +125,16 @@ def items_summary(db: Session = Depends(get_db)):
             grouped.setdefault(o.item_id, []).append(o)
     out = []
     for item in items:
-        offers = grouped.get(item.id, [])
-        best = best_offer(offers)
-        out.append(ItemSummary(
-            id=item.id, name=item.name, offers_count=len(offers),
-            best_offer=BestOffer.model_validate(best, from_attributes=True) if best else None,
-        ))
-    updated = latest or datetime.now(timezone.utc)
-    return ItemsSummary(updated_at=updated, items=out)
+        offers = sorted(grouped.get(item.id, []), key=_offer_sort_key)
+        if not offers:
+            continue
+        out.append(ItemOut(name=item.name, offers=[
+            OfferOut(item=item.name, description=o.product_name, store=o.store,
+                     price=float(o.price) if o.price is not None else None,
+                     valid_from=o.valid_from, valid_to=o.valid_to)
+            for o in offers
+        ]))
+    return ItemsSummary(updated_at=latest or datetime.now(timezone.utc), items=out)
 
 
 @app.get("/login")
