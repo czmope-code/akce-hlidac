@@ -4,11 +4,13 @@ import secrets
 import threading
 import time
 from contextlib import asynccontextmanager
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -80,6 +82,66 @@ def require_user(request: Request, csrf: str | None = Form(None)):
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
+
+
+class BestOffer(BaseModel):
+    product_name: str
+    source: str
+    store: str | None = None
+    price: float | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+    url: str | None = None
+    discovered_at: datetime | None = None
+
+
+class ItemSummary(BaseModel):
+    id: int
+    name: str
+    offers_count: int
+    best_offer: BestOffer | None = None
+
+
+class ItemsSummary(BaseModel):
+    updated_at: datetime
+    items: list[ItemSummary]
+
+
+def _is_active(offer: FoundOffer, today: date) -> bool:
+    return offer.valid_to is None or offer.valid_to >= today
+
+
+def _offer_sort_key(offer: FoundOffer):
+    # lowest price first, unpriced last; newest discovery wins ties
+    discovered = offer.discovered_at.timestamp() if offer.discovered_at else 0
+    return (offer.price is None, float(offer.price or 0), -discovered)
+
+
+def best_offer(offers: list[FoundOffer]) -> FoundOffer | None:
+    return min(offers, key=_offer_sort_key) if offers else None
+
+
+@app.get("/api/items/summary", response_model=ItemsSummary)
+def items_summary(db: Session = Depends(get_db)):
+    today = date.today()
+    items = db.scalars(select(TrackedItem).order_by(TrackedItem.name)).all()
+    grouped: dict[int, list[FoundOffer]] = {}
+    latest: datetime | None = None
+    for o in db.scalars(select(FoundOffer)).all():
+        if o.discovered_at and (latest is None or o.discovered_at > latest):
+            latest = o.discovered_at
+        if _is_active(o, today):
+            grouped.setdefault(o.item_id, []).append(o)
+    out = []
+    for item in items:
+        offers = grouped.get(item.id, [])
+        best = best_offer(offers)
+        out.append(ItemSummary(
+            id=item.id, name=item.name, offers_count=len(offers),
+            best_offer=BestOffer.model_validate(best, from_attributes=True) if best else None,
+        ))
+    updated = latest or datetime.now(timezone.utc)
+    return ItemsSummary(updated_at=updated, items=out)
 
 
 @app.get("/login")
