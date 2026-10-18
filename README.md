@@ -47,10 +47,10 @@ runs with `--proxy-headers` so the real client IP is used.
 
 ## Home Assistant API
 
-`GET /api/items/summary` is an open, read-only JSON endpoint (no login) with per-item
-aggregates: `updated_at` and `items[]` (`id`, `name`, `offers_count`, `best_offer` — the
-cheapest currently active offer or `null`). Offers are active when `valid_to` is empty or not
-in the past.
+`GET /api/items/summary` is an open, read-only JSON endpoint (no login): `updated_at` and
+`items[]` (`name`, `offers[]`), where each active offer has only `item`, `description`,
+`store`, `price`, `valid_from`, `valid_to`. Expired offers (`valid_to` in the past) and items
+without active offers are omitted; offers are sorted cheapest first.
 
 ```yaml
 rest:
@@ -60,7 +60,7 @@ rest:
       - name: "Akce krkovice"
         value_template: >
           {% set i = value_json['items'] | selectattr('name', 'eq', 'krkovice') | first %}
-          {{ i.best_offer.price if i and i.best_offer else 'none' }}
+          {{ i.offers[0].price if i else 'none' }}
         json_attributes_path: "$"
         json_attributes:
           - items

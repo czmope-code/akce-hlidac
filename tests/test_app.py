@@ -192,8 +192,10 @@ def test_items_summary_open_and_aggregates():
         data = r.json()
         assert data["updated_at"]
         by = {i["name"]: i for i in data["items"]}
-        assert by["krkovice"]["offers_count"] == 2
-        assert by["krkovice"]["best_offer"]["product_name"] == "levná"
-        assert by["krkovice"]["best_offer"]["price"] == 99.9
-        assert by["mléko"]["best_offer"]["valid_to"] is None
-        assert by["máslo"] == {"id": e.id, "name": "máslo", "offers_count": 0, "best_offer": None}
+        assert set(by) == {"krkovice", "mléko"}  # no active offers -> omitted
+        assert set(by["krkovice"]) == {"name", "offers"}
+        offers = by["krkovice"]["offers"]
+        assert [o["description"] for o in offers] == ["levná", "drahá"]  # expired excluded
+        assert set(offers[0]) == {"item", "description", "store", "price", "valid_from", "valid_to"}
+        assert offers[0]["item"] == "krkovice" and offers[0]["price"] == 99.9
+        assert by["mléko"]["offers"][0]["valid_to"] is None
