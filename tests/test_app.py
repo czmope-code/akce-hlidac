@@ -75,9 +75,48 @@ def test_parsers():
     assert scrapers.parse_price("Máslo 39,90 Kč") == 39.9
     from datetime import date
     assert scrapers.parse_dates("platí 1.10. - 7.10.2026") == (date(2026, 10, 1), date(2026, 10, 7))
-    html = '<div class="product"><h3><a href="/x">Máslo</a></h3><span class="shop">Albert</span> 39,90 Kč 1.10. - 7.10.</div>'
-    o = scrapers.parse_kupi(html)
-    assert len(o) == 1 and o[0].store == "Albert" and o[0].url == "https://www.kupi.cz/x"
+
+
+KUPI_HTML = """<html><body><div class="group_discounts">
+<div class="discount_row"><a class="product_link_history" href="/slevy/vepro-krkovice">Vepřová krkovice bez kosti</a>
+<span class="discount_shop"><img alt="Tesco" src="t.png"></span>
+<strong class="discount_price_value">149,90 Kč</strong>
+<span class="discount_validity">14. 10. - 20. 10.</span></div>
+<div class="discount_row"><span class="discount_product_name">Bez ceny</span></div>
+</div></body></html>"""
+
+AKCNICENY_JSONLD = """<html><head><script type="application/ld+json">
+{"@type":"Product","name":"Krkovice výběr","url":"/produkt/krkovice",
+ "offers":{"@type":"Offer","price":"139.90","seller":{"name":"Albert"},
+ "validFrom":"2026-10-14","priceValidUntil":"2026-10-20"}}</script></head></html>"""
+
+AKCNICENY_HTML = """<div class="product-box"><h3><a href="/p/krkovice">Krkovice</a></h3>
+<span class="shop-name">Lidl</span><span class="price">129,00 Kč</span>
+<span class="validity">15.10. - 21.10.2026</span></div>"""
+
+
+def test_parse_kupi_cards():
+    from datetime import date
+    o = scrapers.parse_kupi(KUPI_HTML, today=date(2026, 10, 15))
+    assert len(o) == 1
+    assert (o[0].product_name, o[0].store, o[0].price) == ("Vepřová krkovice bez kosti", "Tesco", 149.9)
+    assert o[0].valid_from == date(2026, 10, 14) and o[0].valid_to == date(2026, 10, 20)
+    assert o[0].url == "https://www.kupi.cz/slevy/vepro-krkovice"
+
+
+def test_parse_akcniceny_jsonld_and_cards():
+    from datetime import date
+    o = scrapers.parse_akcniceny(AKCNICENY_JSONLD)
+    assert (o[0].product_name, o[0].store, o[0].price) == ("Krkovice výběr", "Albert", 139.9)
+    assert o[0].valid_to == date(2026, 10, 20) and o[0].url == "https://www.akcniceny.cz/produkt/krkovice"
+    o = scrapers.parse_akcniceny(AKCNICENY_HTML)
+    assert (o[0].store, o[0].price, o[0].valid_to) == ("Lidl", 129.0, date(2026, 10, 21))
+
+
+def test_parsers_fail_gracefully(caplog):
+    assert scrapers.parse_kupi("<html><title>x</title></html>") == []
+    assert scrapers.parse_akcniceny("") == []
+    assert "no offers parsed" in caplog.text
 
 
 def test_run_searches_skips_disabled_and_dedups(monkeypatch):
