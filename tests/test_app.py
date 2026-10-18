@@ -165,3 +165,35 @@ def test_run_searches_skips_disabled_and_dedups(monkeypatch):
     assert jobs.run_searches(client=object()) == 0
     with db.SessionLocal() as s:
         assert {o.product_name for o in s.query(FoundOffer)} == {"on"}
+
+
+def test_items_summary_open_and_aggregates():
+    from datetime import date
+    today = date.today()
+    with TestClient(main.app) as c:
+        with db.SessionLocal() as s:
+            s.query(FoundOffer).delete()
+            s.query(TrackedItem).delete()
+            a, b, e = TrackedItem(name="krkovice"), TrackedItem(name="mléko"), TrackedItem(name="máslo")
+            s.add_all([a, b, e])
+            s.flush()
+            s.add_all([
+                FoundOffer(item_id=a.id, source="x", product_name="drahá", store="T", price=120,
+                           valid_to=today + timedelta(days=1)),
+                FoundOffer(item_id=a.id, source="x", product_name="levná", store="T", price=99.9,
+                           valid_to=today, url="http://u"),
+                FoundOffer(item_id=a.id, source="x", product_name="stará", price=10,
+                           valid_to=today - timedelta(days=1)),
+                FoundOffer(item_id=b.id, source="x", product_name="bez dat", price=20),
+            ])
+            s.commit()
+        r = c.get("/api/items/summary")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["updated_at"]
+        by = {i["name"]: i for i in data["items"]}
+        assert by["krkovice"]["offers_count"] == 2
+        assert by["krkovice"]["best_offer"]["product_name"] == "levná"
+        assert by["krkovice"]["best_offer"]["price"] == 99.9
+        assert by["mléko"]["best_offer"]["valid_to"] is None
+        assert by["máslo"] == {"id": e.id, "name": "máslo", "offers_count": 0, "best_offer": None}

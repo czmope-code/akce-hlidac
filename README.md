@@ -44,3 +44,24 @@ The scrapers in `app/scrapers.py` are a best-effort generic parser; improve
 check the sites' robots.txt and terms of use.
 Login attempts are rate limited (5 per 5 minutes per IP). Behind a proxy, uvicorn
 runs with `--proxy-headers` so the real client IP is used.
+
+## Home Assistant API
+
+`GET /api/items/summary` is an open, read-only JSON endpoint (no login) with per-item
+aggregates: `updated_at` and `items[]` (`id`, `name`, `offers_count`, `best_offer` — the
+cheapest currently active offer or `null`). Offers are active when `valid_to` is empty or not
+in the past.
+
+```yaml
+rest:
+  - resource: http://<SERVER_IP>:8050/api/items/summary
+    scan_interval: 1800
+    sensor:
+      - name: "Akce krkovice"
+        value_template: >
+          {% set i = value_json['items'] | selectattr('name', 'eq', 'krkovice') | first %}
+          {{ i.best_offer.price if i and i.best_offer else 'none' }}
+        json_attributes_path: "$"
+        json_attributes:
+          - items
+```
