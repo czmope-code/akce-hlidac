@@ -50,19 +50,60 @@ def parse_price(text: str) -> float | None:
         return None
 
 
+_ISO_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_SHARED_RANGE_RE = re.compile(
+    r"(\d{1,2})\.\s*(?:(\d{1,2})\.)?\s*(?:-|–|—|až)\s*(\d{1,2})\.\s*(\d{1,2})\.(?:\s*(\d{4}))?"
+)
+_FROM_RE = re.compile(r"\b(?:od|platí od|from)\s*(?:[^\W\d_]+\s+)?$", re.I)
+
+
+def _mk(y, mo, d) -> date | None:
+    try:
+        return date(int(y), int(mo), int(d))
+    except ValueError:
+        return None
+
+
 def parse_dates(text: str, today: date | None = None) -> tuple[date | None, date | None]:
+    """Extract (valid_from, valid_to) from Czech text or ISO dates.
+
+    Handles ``15.10. - 21.10.``, ``15. - 21. 10. 2026``, ``platí do úterý 20. 10.``,
+    ``od 15. 10.`` and ISO ``2026-10-15``. A lone date is treated as the end of
+    validity unless it is preceded by ``od``.
+    """
     today = today or date.today()
+    text = text or ""
+    iso = [d for d in (_mk(*m) for m in _ISO_RE.findall(text)) if d]
+    if len(iso) >= 2:
+        return iso[0], iso[1]
+    m = _SHARED_RANGE_RE.search(text)
+    if m:
+        d1, m1, d2, m2, y = m.groups()
+        y2 = int(y) if y else today.year
+        end = _mk(y2, m2, d2)
+        start_month = int(m1) if m1 else int(m2)
+        start = _mk(y2, start_month, d1)
+        if start and end and start > end and not y:
+            end = _mk(y2 + 1, m2, d2)
+        if start and end:
+            return start, end
     found = []
-    for d, mo, y in _DATE_RE.findall(text):
-        try:
-            found.append(date(int(y) if y else today.year, int(mo), int(d)))
-        except ValueError:
-            continue
+    for m in _DATE_RE.finditer(text):
+        d, mo, y = m.groups()
+        dt = _mk(int(y) if y else today.year, mo, d)
+        if dt:
+            found.append((dt, bool(y), _FROM_RE.search(text[: m.start()])))
+    if not found and iso:
+        return None, iso[0]
     if not found:
         return None, None
     if len(found) == 1:
-        return None, found[0]
-    return found[0], found[1]
+        dt, _, is_from = found[0]
+        return (dt, None) if is_from else (None, dt)
+    start, end = found[0][0], found[1][0]
+    if start > end and not found[0][1]:
+        end = _mk(end.year + 1, end.month, end.day) or end
+    return start, end
 
 
 def _text(el) -> str:
@@ -70,10 +111,19 @@ def _text(el) -> str:
 
 
 def _iso_date(value) -> date | None:
+    if not value:
+        return None
     try:
         return date.fromisoformat(str(value)[:10])
     except ValueError:
         return None
+
+
+def _pick(d: dict, *keys):
+    for k in keys:
+        if d.get(k):
+            return d[k]
+    return None
 
 
 def _num(value) -> float | None:
@@ -120,7 +170,10 @@ def _parse_jsonld(source: str, base: str, soup: BeautifulSoup) -> list[Offer]:
                 url = off.get("url") or node.get("url")
                 offers.append(Offer(
                     source, str(node["name"])[:300], str(store)[:100] if store else None, price,
-                    _iso_date(off.get("validFrom")), _iso_date(off.get("priceValidUntil") or off.get("validThrough")),
+                    _iso_date(_pick(off, "validFrom", "availabilityStarts", "validFromDate"))
+                    or _iso_date(_pick(node, "validFrom", "availabilityStarts")),
+                    _iso_date(_pick(off, "priceValidUntil", "validThrough", "validTo", "availabilityEnds"))
+                    or _iso_date(_pick(node, "validThrough", "priceValidUntil", "validTo")),
                     urljoin(base, url) if url else None,
                 ))
     return offers
@@ -145,10 +198,33 @@ def _parse_microdata(source: str, base: str, soup: BeautifulSoup) -> list[Offer]
         store = (_prop(seller, "name") if seller else None) or None
         offers.append(Offer(
             source, name[:300], store[:100] if store else None, price,
-            _iso_date(_prop(card, "validFrom")), _iso_date(_prop(card, "priceValidUntil")),
+            *_card_dates(card, None),
             urljoin(base, url) if url else None,
         ))
     return offers
+
+
+_VALID_ATTRS_FROM = ("data-valid-from", "data-validfrom", "data-from", "data-date-from")
+_VALID_ATTRS_TO = ("data-valid-to", "data-validto", "data-valid-until", "data-to", "data-date-to")
+
+
+def _card_dates(card, validity_el, today: date | None = None) -> tuple[date | None, date | None]:
+    """Best-effort validity from microdata, attributes, <time>, validity element, then card text."""
+    vf = _iso_date(_prop(card, "validFrom") or _prop(card, "availabilityStarts"))
+    vt = _iso_date(_prop(card, "priceValidUntil") or _prop(card, "validThrough") or _prop(card, "availabilityEnds"))
+    for el in [card, *card.find_all(True)]:
+        vf = vf or next((_iso_date(el.get(a)) for a in _VALID_ATTRS_FROM if el.get(a)), None)
+        vt = vt or next((_iso_date(el.get(a)) for a in _VALID_ATTRS_TO if el.get(a)), None)
+    if vf and vt:
+        return vf, vt
+    times = [d for d in (_iso_date(t.get("datetime")) for t in card.find_all("time")) if d]
+    if not (vf or vt) and times:
+        return (times[0], times[1]) if len(times) > 1 else (None, times[0])
+    if validity_el is not None:
+        tf, tt = parse_dates(_text(validity_el), today)
+    else:
+        tf, tt = parse_dates(_text(card), today)
+    return vf or tf, vt or tt
 
 
 def _first(card, selectors: str):
@@ -174,7 +250,7 @@ def _parse_cards(source: str, base: str, soup: BeautifulSoup, spec: dict, today:
         store_el = _first(card, spec["store"])
         store = (store_el.get("alt") or store_el.get("title") or _text(store_el)) if store_el else None
         validity_el = _first(card, spec["validity"])
-        vf, vt = parse_dates(_text(validity_el), today) if validity_el else (None, None)
+        vf, vt = _card_dates(card, validity_el, today)
         offers.append(Offer(
             source, name[:300], store[:100] if store else None, price, vf, vt,
             urljoin(base, link["href"]) if link else None,
@@ -208,6 +284,18 @@ def _dedup(offers: list[Offer]) -> list[Offer]:
     return out
 
 
+def _fill_page_dates(offers: list[Offer], soup: BeautifulSoup, today: date | None) -> None:
+    """If offers lack any dates, use a full interval found in page headings."""
+    if any(o.valid_from or o.valid_to for o in offers):
+        return
+    for h in soup.select("h1, h2"):
+        vf, vt = parse_dates(_text(h), today)
+        if vf and vt:
+            for o in offers:
+                o.valid_from, o.valid_to = vf, vt
+            return
+
+
 def _parse_site(source: str, base: str, spec: dict, html: str, today: date | None) -> list[Offer]:
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -218,6 +306,7 @@ def _parse_site(source: str, base: str, spec: dict, html: str, today: date | Non
         ):
             offers = _dedup(strategy())
             if offers:
+                _fill_page_dates(offers, soup, today)
                 return offers
         log.warning(
             "%s: no offers parsed (html length=%d, title=%r, start=%r)",
